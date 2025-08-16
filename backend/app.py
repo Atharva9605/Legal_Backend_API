@@ -84,9 +84,29 @@ def chat():
         }
         chat_sessions[session_id]["messages"].append(user_message)
 
-        # Invoke your LangGraph agent
+        # Invoke your LangGraph agent with proper error handling
         logger.info("Invoking LangGraph legal advisor agent...")
-        response = legal_agent_app.invoke({"messages": [HumanMessage(content=message)]})
+        try:
+            # Ensure the input format is correct
+            input_data = {"messages": [HumanMessage(content=message)]}
+            logger.info(f"Input data structure: {type(input_data)}")
+            logger.info(f"Input data keys: {input_data.keys()}")
+            
+            response = legal_agent_app.invoke(input_data)
+            logger.info(f"LangGraph response type: {type(response)}")
+            logger.info(f"LangGraph response keys: {response.keys() if isinstance(response, dict) else 'Not a dict'}")
+            
+        except Exception as langgraph_error:
+            logger.error(f"LangGraph invocation error: {str(langgraph_error)}")
+            logger.error(f"LangGraph error type: {type(langgraph_error)}")
+            logger.error(f"LangGraph error traceback: {traceback.format_exc()}")
+            
+            # Return a more helpful error message
+            return jsonify({
+                "error": "Legal analysis failed",
+                "message": "The AI system encountered an error while processing your legal query. Please try again or rephrase your question.",
+                "technical_details": str(langgraph_error) if app.debug else "Contact support for technical details"
+            }), 500
         
         # Extract the final answer from the response
         ai_response = extract_final_answer(response)
