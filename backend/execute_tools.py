@@ -11,8 +11,31 @@ load_dotenv()
 tavily_tool = TavilySearchResults(max_results=5)
 
 # Function to execute search queries from AnswerQuestion tool calls
-def execute_tools(state: List[BaseMessage]) -> List[BaseMessage]:
-    last_ai_message: AIMessage = state[-1]
+def execute_tools(state: Dict[str, Any]) -> List[BaseMessage]:
+    """
+    Execute tools based on the current state.
+    
+    Args:
+        state: LangGraph state containing messages and other data
+        
+    Returns:
+        List of tool messages with search results
+    """
+    # Extract messages from state
+    messages = state.get("messages", [])
+    
+    if not messages:
+        return []
+    
+    # Get the last AI message
+    last_ai_message = None
+    for message in reversed(messages):
+        if isinstance(message, AIMessage):
+            last_ai_message = message
+            break
+    
+    if not last_ai_message:
+        return []
     
     # Extract tool calls from the AI message
     if not hasattr(last_ai_message, "tool_calls") or not last_ai_message.tool_calls:
@@ -29,8 +52,15 @@ def execute_tools(state: List[BaseMessage]) -> List[BaseMessage]:
             # Execute each search query using the tavily tool
             query_results = {}
             for query in search_queries:
-                result = tavily_tool.invoke(query)
-                query_results[query] = result
+                try:
+                    result = tavily_tool.invoke(query)
+                    query_results[query] = result
+                except Exception as e:
+                    # Handle search tool errors gracefully
+                    query_results[query] = {
+                        "error": f"Failed to search for '{query}': {str(e)}",
+                        "results": []
+                    }
             
             # Create a tool message with the results
             tool_messages.append(
@@ -42,38 +72,40 @@ def execute_tools(state: List[BaseMessage]) -> List[BaseMessage]:
     
     return tool_messages
 
-# Example usage
-test_state = [
-    HumanMessage(
-        content="Write about how small business can leverage AI to grow"
-    ),
-    AIMessage(
-        content="", 
-        tool_calls=[
-            {
-                "name": "AnswerQuestion",
-                "args": {
-                    'answer': '', 
-                    'search_queries': [
-                            'AI tools for small business', 
-                            'AI in small business marketing', 
-                            'AI automation for small business'
-                    ], 
-                    'reflection': {
-                        'missing': '', 
-                        'superfluous': ''
+# Example usage for testing
+if __name__ == "__main__":
+    test_state = {
+        "messages": [
+            HumanMessage(
+                content="Write about how small business can leverage AI to grow"
+            ),
+            AIMessage(
+                content="", 
+                tool_calls=[
+                    {
+                        "name": "AnswerQuestion",
+                        "args": {
+                            'answer': '', 
+                            'search_queries': [
+                                    'AI tools for small business', 
+                                    'AI in small business marketing', 
+                                    'AI automation for small business'
+                            ], 
+                            'reflection': {
+                                'missing': '', 
+                                'superfluous': ''
+                            }
+                        },
+                        "id": "call_KpYHichFFEmLitHFvFhKy1Ra",
                     }
-                },
-                "id": "call_KpYHichFFEmLitHFvFhKy1Ra",
-            }
-        ],
-    )
-]
+                ],
+            )
+        ]
+    }
 
-# Execute the tools
-# results = execute_tools(test_state)
-
-# print("Raw results:", results)
-# if results:
-#     parsed_content = json.loads(results[0].content)
-#     print("Parsed content:", parsed_content)
+    # Execute the tools
+    results = execute_tools(test_state)
+    print("Raw results:", results)
+    if results:
+        parsed_content = json.loads(results[0].content)
+        print("Parsed content:", parsed_content)
