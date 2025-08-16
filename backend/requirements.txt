@@ -1,39 +1,39 @@
 # Core Flask dependencies
-Flask==3.1.1
-Flask-CORS==6.0.1
-gunicorn==23.0.0
+Flask
+Flask-CORS
+gunicorn
 
 # LangChain and LangGraph dependencies
-langchain==0.3.27
-langchain-core==0.3.74
-langchain-community==0.3.27
-langchain-google-genai==2.1.9
-langchain-text-splitters==0.3.9
-langgraph==0.6.5
+langchain
+langchain-core
+langchain-community
+langchain-google-genai
+langchain-text-splitters
+langgraph
 
 # Google AI dependencies
-google-ai-generativelanguage==0.6.18
-google-api-core==2.25.1
-google-auth==2.40.3
+google-ai-generativelanguage
+google-api-core
+google-auth
 
 # Search and tools
-tavily-python==0.3.1
+tavily-python
 
 # Data processing
-pydantic==2.8.2
-pydantic-settings==2.4.2
+pydantic
+pydantic-settings
 
 # Environment and utilities
-python-dotenv==1.0.1
+python-dotenv
 
 # HTTP and networking
-httpx==0.28.1
-aiohttp==3.12.15
+httpx
+aiohttp
 
 # JSON and data handling
-orjson==3.11.2
-ormsgpack==1.10.0
+orjson
+ormsgpack
 
 # Development and testing (optional)
-pytest==8.0.0
-pytest-asyncio==0.24.0
+pytest
+pytest-asyncio
