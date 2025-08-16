@@ -62,6 +62,89 @@ def chat():
 
         logger.info(f"Received chat message: {message[:100]}...")
 
+        # Get session ID and whether to include thinking steps
+        session_id = 'default'
+        include_thinking = False
+        if isinstance(data, dict):
+            session_id = data.get('session_id', 'default')
+            include_thinking = data.get('include_thinking', False)
+        
+        # Initialize session if not exists
+        if session_id not in chat_sessions:
+            chat_sessions[session_id] = {
+                "messages": [],
+                "created_at": datetime.now().isoformat()
+            }
+
+        # Add user message to session
+        user_message = {
+            "text": message,
+            "sender": "user",
+            "timestamp": datetime.now().isoformat()
+        }
+        chat_sessions[session_id]["messages"].append(user_message)
+
+        # Invoke your LangGraph agent
+        logger.info("Invoking LangGraph legal advisor agent...")
+        response = legal_agent_app.invoke({"messages": [HumanMessage(content=message)]})
+        
+        # Extract the final answer from the response
+        ai_response = extract_final_answer(response)
+        
+        # Add AI response to session
+        ai_message = {
+            "text": ai_response,
+            "sender": "ai",
+            "timestamp": datetime.now().isoformat(),
+            "iteration": 1
+        }
+        chat_sessions[session_id]["messages"].append(ai_message)
+
+        logger.info("Successfully generated legal analysis")
+        
+        # Prepare response
+        response_data = {
+            "response": ai_response,
+            "session_id": session_id,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # Include thinking steps if requested
+        if include_thinking:
+            thinking_steps = extract_thinking_steps(response)
+            response_data["thinking_steps"] = thinking_steps
+        
+        return jsonify(response_data)
+
+    except Exception as e:
+        logger.error(f"Error in chat endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            "error": "Internal server error", 
+            "message": "Failed to process legal query"
+        }), 500
+
+@app.route('/chat-with-thinking', methods=['POST'])
+def chat_with_thinking():
+    """Chat endpoint that always includes detailed thinking steps"""
+    try:
+        # Get message from request
+        data = request.get_json() if request.is_json else None
+        
+        if data is None:
+            message = request.data.decode('utf-8')
+        elif isinstance(data, str):
+            message = data
+        elif isinstance(data, dict):
+            message = data.get('message', data.get('text', ''))
+        else:
+            return jsonify({"error": "Invalid input format"}), 400
+
+        if not message:
+            return jsonify({"error": "No message provided"}), 400
+
+        logger.info(f"Received chat with thinking request: {message[:100]}...")
+
         # Get session ID
         session_id = 'default'
         if isinstance(data, dict):
@@ -83,36 +166,38 @@ def chat():
         chat_sessions[session_id]["messages"].append(user_message)
 
         # Invoke your LangGraph agent
-        logger.info("Invoking LangGraph legal advisor agent...")
-        response = legal_agent_app.invoke(message)
+        logger.info("Invoking LangGraph legal advisor agent with thinking...")
+        response = legal_agent_app.invoke({"messages": [HumanMessage(content=message)]})
         
-        # Extract the final answer from the response
+        # Extract the final answer and thinking steps
         ai_response = extract_final_answer(response)
+        thinking_steps = extract_thinking_steps(response)
         
         # Add AI response to session
         ai_message = {
             "text": ai_response,
             "sender": "ai",
             "timestamp": datetime.now().isoformat(),
-            "iteration": 1
+            "iteration": 1,
+            "thinking_steps": thinking_steps
         }
         chat_sessions[session_id]["messages"].append(ai_message)
 
-        logger.info("Successfully generated legal analysis")
+        logger.info("Successfully generated legal analysis with thinking steps")
         
-        # Return response in format expected by frontend
         return jsonify({
             "response": ai_response,
+            "thinking_steps": thinking_steps,
             "session_id": session_id,
             "timestamp": datetime.now().isoformat()
         })
 
     except Exception as e:
-        logger.error(f"Error in chat endpoint: {str(e)}")
+        logger.error(f"Error in chat with thinking endpoint: {str(e)}")
         logger.error(traceback.format_exc())
         return jsonify({
             "error": "Internal server error", 
-            "message": "Failed to process legal query"
+            "message": "Failed to process legal query with thinking"
         }), 500
 
 @app.route('/revise', methods=['POST'])
@@ -155,7 +240,7 @@ Please revise your previous legal analysis based on this feedback, maintaining t
 
         # Invoke your LangGraph agent for revision
         logger.info("Invoking LangGraph agent for revision...")
-        response = legal_agent_app.invoke(revision_prompt)
+        response = legal_agent_app.invoke({"messages": [HumanMessage(content=revision_prompt)]})
         
         # Extract the revised answer
         revised_response = extract_final_answer(response)
@@ -216,6 +301,13 @@ def export_chat():
         for msg in session['messages']:
             sender = "You" if msg['sender'] == 'user' else "Legal Advisor AI"
             transcript += f"[{msg['timestamp']}] {sender}:\n{msg['text']}\n\n"
+            
+            # Include thinking steps if available
+            if msg.get('thinking_steps'):
+                transcript += f"Thinking Process:\n"
+                for step in msg['thinking_steps']:
+                    transcript += f"  {step['step']}: {step['description']}\n"
+                transcript += "\n"
         
         return jsonify({
             "transcript": transcript,
@@ -227,11 +319,15 @@ def export_chat():
         logger.error(f"Error in export endpoint: {str(e)}")
         return jsonify({"error": "Failed to export chat"}), 500
 
-def extract_final_answer(response: List[BaseMessage]) -> str:
+def extract_final_answer(response: Dict[str, Any]) -> str:
     """Extract the final answer from LangGraph response"""
     try:
-        # Get the last AI message
-        last_message = response[-1]
+        # Get the last AI message from the messages list
+        messages = response.get("messages", [])
+        if not messages:
+            return "I apologize, but I couldn't generate a response."
+        
+        last_message = messages[-1]
         
         # Check if it has tool calls (AnswerQuestion or ReviseAnswer)
         if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
@@ -245,6 +341,57 @@ def extract_final_answer(response: List[BaseMessage]) -> str:
     except Exception as e:
         logger.error(f"Error extracting answer: {str(e)}")
         return "I apologize, but I encountered an error processing your legal query. Please try again."
+
+def extract_thinking_steps(response: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Extract detailed thinking steps from LangGraph response"""
+    try:
+        thinking_steps = []
+        messages = response.get("messages", [])
+        
+        # Track the execution flow through different nodes
+        current_step = 1
+        
+        for i, message in enumerate(messages):
+            if hasattr(message, 'content') and message.content:
+                # Identify which node this message came from based on content patterns
+                node_type = "Unknown"
+                if "I'll analyze this legal question" in message.content or "Let me help you with this legal matter" in message.content:
+                    node_type = "Initial Analysis"
+                elif "Based on my analysis" in message.content or "Here's my legal assessment" in message.content:
+                    node_type = "Final Answer"
+                elif "Let me revise" in message.content or "Based on your feedback" in message.content:
+                    node_type = "Revision"
+                
+                thinking_steps.append({
+                    "step": current_step,
+                    "node": node_type,
+                    "description": message.content[:200] + "..." if len(message.content) > 200 else message.content,
+                    "full_content": message.content,
+                    "timestamp": datetime.now().isoformat()
+                })
+                current_step += 1
+        
+        # If no thinking steps found, create a basic one
+        if not thinking_steps:
+            thinking_steps.append({
+                "step": 1,
+                "node": "Processing",
+                "description": "Processing your legal query through the analysis pipeline",
+                "full_content": "The system processed your query through multiple analysis stages",
+                "timestamp": datetime.now().isoformat()
+            })
+        
+        return thinking_steps
+    
+    except Exception as e:
+        logger.error(f"Error extracting thinking steps: {str(e)}")
+        return [{
+            "step": 1,
+            "node": "Error",
+            "description": "Unable to extract thinking steps",
+            "full_content": f"Error: {str(e)}",
+            "timestamp": datetime.now().isoformat()
+        }]
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8000))
